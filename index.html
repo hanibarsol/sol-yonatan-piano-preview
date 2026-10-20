@@ -1,0 +1,2205 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no">
+    <title>המשפחה של סול - שיעור + פסנתר</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <style>
+        :root {
+            --white-w: 50px; --black-w: 25px;
+            --modern-hi: #454b54; --modern-lo: #1b1e23; --teal: #6fd6c9; --gold: #e0a83f;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #111;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none !important;
+            -webkit-touch-callout: none;
+            font-family: Arial, sans-serif;
+        }
+        #app { display: flex; flex-direction: column; width: 100%; height: 100%; }
+
+        /* Invisible full-screen tap catcher, not a visible "click to start"
+           prompt — browsers (iOS Safari especially) still require a real
+           user gesture before audio can play at all, so this stays in the
+           DOM to guarantee that first tap is captured, it just no longer
+           looks like a separate screen the child has to get past. */
+        #start-screen { position: fixed; inset: 0; background: transparent; z-index: 100; cursor: pointer; }
+
+        /* Pilot: a way back to Sol's home portal, always reachable — sits
+           above even the start-screen tap-catcher (higher z-index) so a
+           child/parent can leave immediately without first having to "start"
+           the lesson. Fixed to the viewport, not the layout, so it never
+           competes with the piano for width. */
+        #home-btn {
+            position: fixed;
+            right: 12px;
+            top: 38%;
+            transform: translateY(-50%);
+            z-index: 101;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            text-decoration: none;
+            touch-action: auto;
+        }
+
+        #video-wrap { flex: 1 1 auto; min-height: 0; background: #000; touch-action: auto; transition: flex-basis 0.25s ease; }
+        #video-wrap iframe { width: 100%; height: 100%; border: 0; touch-action: auto; }
+        /* Practice mode: the video shrinks to a quiet strip instead of
+           disappearing outright — the song keeps playing (timing + audio
+           reference), but it stops competing visually with the falling
+           notes for the child's attention. */
+        #video-wrap.mini { flex: 0 0 76px; }
+        #video-wrap.mini iframe { pointer-events: none; }
+
+        #mode-bar {
+            /* Containing block for the lock hint bubble below. */
+            position: relative;
+            flex: 0 0 auto;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: #1a1a1a;
+            touch-action: auto;
+        }
+        .mode-btn {
+            touch-action: auto;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 20px;
+            padding: 9px 20px;
+            font-size: 15px;
+            font-family: Arial, sans-serif;
+            background: #262626;
+            color: rgba(255,255,255,0.6);
+            cursor: pointer;
+        }
+        .mode-btn.active { background: var(--teal); color: #0a1210; border-color: var(--teal); font-weight: bold; }
+
+        /* The practice button is dimmed for the whole of watch mode, always —
+           this is not a first-visit lock. The video is what teaches the child
+           how to press, and the video is what decides when practice begins.
+           Kept clickable on purpose so the tap can answer with the hint below
+           rather than silently doing nothing, which reads as broken.
+           Matches sol-nice2meet-piano; Hani's decision, 2026-08-23. */
+        .mode-btn.locked { opacity: 0.35; cursor: default; }
+        #mode-lock-hint {
+            position: absolute;
+            /* above the bar, over the video: below it the pill covered the
+               speed controls */
+            bottom: calc(100% - 2px); left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.85);
+            border: 1px solid rgba(111,214,201,0.4);
+            color: #fff;
+            padding: 7px 16px;
+            border-radius: 20px;
+            font-size: 15px;
+            white-space: nowrap;
+            z-index: 70;
+            opacity: 1;
+            transition: opacity 0.4s ease;
+            pointer-events: none;
+        }
+        #mode-lock-hint.hidden { opacity: 0; }
+
+        /* Practice-only: toggles whether the video's own audio (the song +
+           Hani singing along) is heard while the child plays, independent
+           of the piano's own sound. Off by default — a deliberate choice
+           the child/parent opts into, not something playing unasked.
+           Hidden outside practice mode. */
+        #audio-toggle-wrap {
+            touch-action: auto;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #audio-toggle-wrap.hidden { display: none; }
+        #audio-toggle {
+            touch-action: auto;
+            width: 40px; height: 40px;
+            flex: 0 0 auto;
+            border-radius: 50%;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: #262626;
+            color: rgba(255,255,255,0.35);
+            font-size: 17px;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #audio-toggle.active {
+            background: radial-gradient(circle at 35% 30%, #4fa3ff, #1a5fc4 75%);
+            border-color: #7ec4ff;
+            color: #fff;
+            box-shadow: 0 0 8px 2px rgba(79,163,255,0.75);
+        }
+        #audio-toggle-label {
+            font-size: 12px;
+            color: #7ec4ff;
+            white-space: nowrap;
+        }
+
+        #speed-bar {
+            flex: 0 0 auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 0;
+            background: #1a1a1a;
+            touch-action: auto;
+        }
+        .speed-step-btn {
+            touch-action: auto;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            font-size: 20px;
+            font-family: Arial, sans-serif;
+            background: #333;
+            color: #fff;
+            cursor: pointer;
+        }
+        .speed-step-btn:active { background: #555; }
+        /* Bigger than the +/- speed steps — it was getting lost next to
+           them, and it's the button that turns into "play again" at the
+           end of the song, so it deserves to actually be noticed. */
+        #play-pause {
+            width: 54px;
+            height: 54px;
+            font-size: 26px;
+        }
+        #speed-reset {
+            touch-action: auto;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 18px;
+            font-size: 16px;
+            font-family: Arial, sans-serif;
+            background: #333;
+            color: #fff;
+            cursor: pointer;
+            min-width: 90px;
+        }
+        #speed-reset.is-normal { background: #ffeb3b; color: #000; font-weight: bold; }
+
+        #piano-container {
+            flex: 0 0 auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            padding: 1.5vh 0;
+            box-sizing: border-box;
+            touch-action: none !important;
+        }
+        #rig {
+            display: grid;
+            grid-template-columns: auto;
+            align-items: end;
+            justify-content: center;
+            gap: 16px;
+            width: 100%;
+            overflow-x: auto;
+            padding: 0 8px;
+        }
+        #cabinet {
+            flex-shrink: 0;
+            width: fit-content;
+            display: flex; flex-direction: column;
+            background: linear-gradient(180deg, var(--modern-hi) 0%, var(--modern-lo) 100%);
+            border-radius: 14px;
+            padding: 12px 12px 0;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 10px 26px rgba(0,0,0,0.45);
+        }
+        #cabinet-lip {
+            flex: 0 0 auto;
+            height: 4px; border-radius: 3px; margin-bottom: 10px;
+            background: linear-gradient(90deg, var(--teal), #bdf2ea, var(--teal));
+            box-shadow: 0 0 6px rgba(111,214,201,0.6);
+        }
+        #keywell {
+            position: relative;
+            background: linear-gradient(180deg, #100f13 0%, var(--modern-lo) 100%);
+            border-radius: 10px 10px 0 0;
+            padding: 10px 10px 0;
+            display: flex; flex-direction: column; align-items: stretch;
+        }
+        /* Shown briefly whenever practice mode starts, so the "press when
+           it reaches the line" rule is explained instead of assumed. */
+        #practice-hint {
+            position: absolute;
+            top: 6px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            border: 1px solid rgba(111,214,201,0.4);
+            color: #fff;
+            padding: 7px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            white-space: nowrap;
+            z-index: 60;
+            opacity: 1;
+            transition: opacity 0.4s ease;
+            pointer-events: none;
+        }
+        #practice-hint.hidden { opacity: 0; }
+        /* Note lane: sits directly above the keys (not up near the video),
+           so a child's eyes barely have to move between "what's coming"
+           and "where to press." Column widths mirror the white keys below
+           exactly, via the same --white-w variable. */
+        #note-lane {
+            position: relative;
+            height: var(--lane-h, 0px);
+            display: flex;
+            overflow: hidden;
+            border-radius: 8px 8px 0 0;
+            background: linear-gradient(180deg, rgba(0,0,0,0.05), rgba(0,0,0,0.32));
+            margin-bottom: 6px;
+            transition: height 0.2s ease;
+        }
+        #note-lane.hidden { height: 0 !important; margin-bottom: 0; }
+        .note-lane-col {
+            position: relative;
+            width: var(--white-w);
+            height: 100%;
+            border-right: 1px solid rgba(255,255,255,0.05);
+        }
+        .note-lane-col:last-child { border-right: none; }
+        /* Flush with the keys — tinted a greener turquoise than the
+           cabinet-lip strip so it still reads as its own distinct
+           "special LED" rather than blending into the lane background. */
+        #note-lane-hitline {
+            position: absolute; left: 0; right: 0; bottom: 0; height: 4px;
+            border-radius: 2px;
+            background: linear-gradient(90deg, #29c98f, #baf7d9, #29c98f);
+            box-shadow: 0 0 9px rgba(41,201,143,0.8), inset 0 0 2px rgba(255,255,255,0.6);
+        }
+        .falling-note {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: calc(var(--white-w) * 0.6);
+            height: calc(var(--white-w) * 0.6);
+            transform: translateX(-50%);
+            border-radius: 50%;
+            overflow: hidden;
+            border: 2px solid rgba(0,0,0,0.85);
+            /* Soft white LED-style halo around the ring, on top of the
+               grounding drop shadow. */
+            box-shadow: 0 2px 6px rgba(0,0,0,0.5), 0 0 10px 2px rgba(255,255,255,0.65);
+            background: #333;
+            pointer-events: none;
+        }
+        /* object-fit: contain (not cover) — cover was cropping into a
+           mostly-transparent margin around the character at random,
+           different amounts every time, which read as "unstable." contain
+           always shows the whole figure, consistently framed. */
+        .falling-note img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+        /* "אני רוצה לנסות לבד" — an alternate, self-paced view: instead of
+           notes falling with the video/audio driving the timing, every note
+           in the song sits laid out left-to-right on a music staff, at its
+           real pitch height, and the child works through them at their own
+           pace with no clock pushing them forward. */
+        #solo-btn {
+            touch-action: auto;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 20px;
+            padding: 9px 20px;
+            font-size: 15px;
+            font-family: Arial, sans-serif;
+            background: #262626;
+            color: rgba(255,255,255,0.6);
+            cursor: pointer;
+        }
+        #solo-btn.active { background: var(--teal); color: #0a1210; border-color: var(--teal); font-weight: bold; }
+        #staff-wrap {
+            position: relative;
+            /* Tied to the piano's own width (7 white keys) — without this,
+               #cabinet's width:fit-content let the staff's full, unclipped
+               content (however many notes long) stretch the whole cabinet
+               to match it instead of scrolling inside a bounded box, which
+               on a narrow phone blew the piano itself far past the keys'
+               own real, already-correct width. */
+            width: calc(var(--white-w) * 7);
+            height: var(--staff-h, 150px);
+            overflow-x: auto;
+            overflow-y: hidden;
+            border-radius: 8px 8px 0 0;
+            background: linear-gradient(180deg, rgba(0,0,0,0.05), rgba(0,0,0,0.32));
+            margin-bottom: 6px;
+            display: none;
+        }
+        #staff-wrap.active { display: block; }
+        #staff-inner { position: relative; height: 100%; }
+        .staff-line {
+            position: absolute;
+            left: 0; right: 0;
+            height: 2px;
+            background: rgba(255,255,255,0.32);
+        }
+        .staff-ledger {
+            position: absolute;
+            height: 2px;
+            background: rgba(255,255,255,0.32);
+            transform: translate(-50%, -50%);
+        }
+        .staff-note {
+            position: absolute;
+            transform: translate(-50%, -50%);
+        }
+        .staff-note-avatar {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 2px solid rgba(0,0,0,0.85);
+            background: #333;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.5), 0 0 10px 2px rgba(255,255,255,0.55);
+        }
+        .staff-note-avatar img { width: 100%; height: 100%; object-fit: contain; display: block; }
+        /* Already played correctly — lights up teal and stays lit, so the
+           child can see their progress through the whole line at a glance.
+           No "play this next" hint on purpose — the point of this mode is
+           reading the staff independently, not being told what's next. */
+        .staff-note.done .staff-note-avatar {
+            border-color: var(--teal);
+            box-shadow: 0 0 12px 4px rgba(111,214,201,0.9);
+        }
+        /* Correct-in-time press: pop like a bubble — a quick anticipatory
+           squash, then a fast burst-and-vanish — instead of a plain fade. */
+        @keyframes bubble-pop {
+            0%   { transform: translateX(-50%) scale(1); opacity: 1; }
+            30%  { transform: translateX(-50%) scale(0.85); opacity: 1; }
+            100% { transform: translateX(-50%) scale(2.1); opacity: 0; }
+        }
+        .falling-note.hit { animation: bubble-pop 0.3s ease-out forwards; }
+
+        .piano {
+            align-self: center;
+            display: flex;
+            position: relative;
+            direction: ltr;
+            height: var(--key-h, 220px);
+            touch-action: none !important;
+        }
+
+        .key {
+            position: relative;
+            border: 1px solid #000;
+            box-sizing: border-box;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            align-items: center;
+            padding-bottom: 6px;
+            z-index: 10;
+            touch-action: none !important;
+            -webkit-touch-callout: none;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .white-key { width: var(--white-w); height: 100%; background-color: white; border-radius: 0 0 5px 5px; }
+
+        /* "Fills up like a glass of water" — rises a notch with every
+           correct-in-time press, behind the character but above the key's
+           own background, so by the end of the song each key shows its
+           own little results bar. */
+        .key-fill {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 0%;
+            z-index: -1;
+            pointer-events: none;
+            border-radius: 0 0 5px 5px;
+            background: linear-gradient(180deg, rgba(130,226,255,0.4), rgba(41,150,201,0.75));
+            transition: height 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+        }
+        .key-fill::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: rgba(255,255,255,0.85);
+            box-shadow: 0 0 6px rgba(255,255,255,0.85);
+            transform-origin: 50% 50%;
+        }
+        /* A brief splash right when the level rises, then it settles and
+           stays still — a constant infinite wobble was too much motion to
+           have sitting there the whole song, distracting from the actual
+           falling notes. */
+        .key-fill.pouring::after {
+            animation: water-sway 0.9s ease-out 1;
+        }
+        @keyframes water-sway {
+            0%   { transform: rotate(0deg) translateY(0); }
+            20%  { transform: rotate(-6deg) translateY(0); }
+            45%  { transform: rotate(4deg) translateY(-2px); }
+            70%  { transform: rotate(-2deg) translateY(0); }
+            100% { transform: rotate(0deg) translateY(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .key-fill.pouring::after { animation: none; }
+        }
+
+        .black-key {
+            width: var(--black-w);
+            height: 45%;
+            background-color: #333;
+            z-index: 30;
+            margin-left: calc(var(--black-w) / -2);
+            margin-right: calc(var(--black-w) / -2);
+            border-radius: 0 0 3px 3px;
+        }
+
+        .key.active { background-color: #ffeb3b !important; }
+        .key.due { box-shadow: inset 0 0 0 5px #4caf50; }
+        .key.correct-flash {
+            background-color: #ffab00 !important;
+            box-shadow: 0 0 10px 2px rgba(255, 171, 0, 0.45);
+            transition: background-color 0.25s ease-out, box-shadow 0.25s ease-out;
+        }
+        @keyframes star-pop {
+            0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0; }
+            40%  { transform: translate(-50%, -50%) scale(1.3); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1.7); opacity: 0; }
+        }
+        .star-pop {
+            position: absolute;
+            top: 35%;
+            left: 50%;
+            font-size: 28px;
+            pointer-events: none;
+            animation: star-pop 0.55s ease-out forwards;
+            z-index: 41;
+        }
+
+        .character-img {
+            width: 80%;
+            margin-bottom: 4px;
+            pointer-events: none;
+            -webkit-touch-callout: none;
+            user-select: none;
+        }
+
+        #calib-panel {
+            display: none;
+            position: fixed;
+            top: 8px;
+            left: 8px;
+            /* Higher than #start-screen (100) — if that overlay ever fails to
+               dismiss (e.g. Tone.js/audio setup stalls), the calibration
+               buttons underneath must still be reachable, since calibration
+               only needs the video player, not the piano audio. */
+            z-index: 200;
+            background: rgba(0,0,0,0.75);
+            border-radius: 10px;
+            padding: 8px;
+            max-width: 220px;
+            touch-action: auto;
+            font-family: Arial, sans-serif;
+            color: #fff;
+        }
+        #calib-panel button {
+            touch-action: auto;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 14px;
+            cursor: pointer;
+            margin: 2px;
+        }
+        #calib-mark { background: #ffeb3b; color: #000; font-weight: bold; width: 100%; padding: 12px; font-size: 16px; }
+        #calib-undo { background: #555; color: #fff; }
+        #calib-clear { background: #555; color: #fff; }
+        #calib-copy { background: #4caf50; color: #fff; }
+        #calib-list {
+            touch-action: auto;
+            max-height: 110px;
+            overflow-y: auto;
+            font-size: 12px;
+            margin-top: 6px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 6px;
+            padding: 4px;
+            direction: ltr;
+            text-align: left;
+        }
+        #calib-copy-box {
+            display: none;
+            touch-action: auto;
+            width: 100%;
+            box-sizing: border-box;
+            margin-top: 6px;
+            font-size: 12px;
+            direction: ltr;
+            text-align: left;
+            resize: none;
+            border-radius: 6px;
+            border: 1px solid #4caf50;
+            padding: 4px;
+        }
+        /* ============ משך התו ב"אני רוצה לנסות לבד" ============ */
+        .staff-note-avatar { position: relative; z-index: 1; }
+        .note-water { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+        .note-water svg { width: 100%; height: 100%; display: block; }
+        .staff-note { cursor: pointer; -webkit-touch-callout: none; }
+        .staff-note img, .key img {
+            -webkit-user-drag: none; user-drag: none; -webkit-touch-callout: none;
+        }
+        /* קו המתאר נדלק בהדרגה. מסכה חותכת את העיגול לטבעת כך שהמרכז לא
+           נצבע כלל, אחרת נצבע עיגול מלא שנראה בהתחלה כמו מניפה. הזוהר על
+           העטיפה והצביעה על הילד שבתוכה, כי מסכה וזוהר על אותו רכיב
+           מבטלים זה את זה. */
+        .hold-ring {
+            position: absolute; inset: -5px;
+            border-radius: 50%; z-index: 0; pointer-events: none;
+            filter: drop-shadow(0 0 5px rgba(111,214,201,0.95));
+            opacity: 0; transition: opacity .18s ease;
+        }
+        .hold-ring::before {
+            content: ""; position: absolute; inset: 0; border-radius: 50%;
+            /* מתחילה 45 מעלות אחרי ראש העיגול: הקטע הראשון קצר מכדי
+               להיקרא כקו מתאר ונראה ככתם שלא מסונכרן עם העיגול. */
+            background: conic-gradient(
+                transparent 0deg var(--skip, 45deg),
+                var(--teal) var(--skip, 45deg) calc(var(--p, 0) * 360deg),
+                transparent 0deg);
+            -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3px));
+            mask: radial-gradient(closest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3px));
+        }
+        .staff-note.holding .hold-ring { opacity: calc(var(--p, 0) * 7); }
+        .staff-note.hold-full .hold-ring { filter: drop-shadow(0 0 9px rgba(111,214,201,1)); }
+        /* ================= סוף התוספת ================= */
+    </style>
+<style>
+/* ---------- Sol home button (unified turquoise) ---------- */
+.sol-home-btn {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 101;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: #17A79B;
+    color: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    box-shadow: 0 4px 14px rgba(18, 48, 44, 0.35);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.sol-home-btn:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 8px 18px rgba(18, 48, 44, 0.45); }
+.sol-home-btn:focus-visible { outline: 3px solid #FFFFFF; outline-offset: 3px; }
+.sol-home-btn svg { width: 26px; height: 26px; }
+@media (max-width: 640px) {
+    .sol-home-btn { width: 44px; height: 44px; top: 8px; left: 8px; }
+    .sol-home-btn svg { width: 22px; height: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .sol-home-btn { transition: none; }
+    .sol-home-btn:hover { transform: none; }
+}
+
+/* ---------- Sol lesson navigation (next / previous) ---------- */
+/* Smaller than the home button and to its right: the home button keeps the
+   exact corner and size it holds on every page of the platform, and the
+   arrows read as secondary to it.
+
+   The row sits directly BELOW the home button, not beside it. Beside it was
+   the first choice and it looked right in isolation, but measured against
+   the real pages it covered a control on 6 of 11 lessons — the play/pause
+   button, or "ככה השיר נשמע" — because most lessons put their own control
+   row at exactly that height. The left margin under the home button is
+   empty on every lesson, so this also survives future layout changes.
+
+   They sit in a row rather than at fixed
+   coordinates each, so a lesson that has only one of them keeps it snug
+   against the home button instead of leaving a hole where the other would
+   have been. The row is forced to LTR so the arrows keep their order on a
+   right-to-left page. */
+.sol-nav {
+    position: fixed;
+    top: 72px;
+    left: 12px;
+    height: 38px;
+    z-index: 101;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    direction: ltr;
+}
+.sol-nav-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: #17A79B;
+    color: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    box-shadow: 0 4px 14px rgba(18, 48, 44, 0.35);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.sol-nav-btn:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 8px 18px rgba(18, 48, 44, 0.45); }
+.sol-nav-btn:focus-visible { outline: 3px solid #FFFFFF; outline-offset: 3px; }
+.sol-nav-btn svg { width: 20px; height: 20px; }
+@media (max-width: 640px) {
+    .sol-nav { top: 58px; left: 8px; height: 34px; gap: 6px; }
+    .sol-nav-btn { width: 34px; height: 34px; }
+    .sol-nav-btn svg { width: 18px; height: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .sol-nav-btn { transition: none; }
+    .sol-nav-btn:hover { transform: none; }
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+    <div id="video-wrap">
+        <div id="lesson-video"></div>
+    </div>
+    <div id="mode-bar">
+        <button id="mode-watch" class="mode-btn active">👀 צפייה</button>
+        <button id="mode-practice" class="mode-btn">🎹 תרגול</button>
+        <div id="mode-lock-hint" class="hidden">רגע, קודם צופים בהסבר 👀</div>
+        <div id="audio-toggle-wrap" class="hidden">
+            <button id="audio-toggle" title="ליווי קול">🔇</button>
+            <span id="audio-toggle-label">חני, תשירי ותנגני איתי</span>
+        </div>
+        <button id="solo-btn">אני רוצה לנסות לבד</button>
+    </div>
+    <div id="speed-bar">
+        <button id="play-pause" class="speed-step-btn">⏸</button>
+        <button id="speed-minus" class="speed-step-btn">－</button>
+        <button id="speed-reset" class="is-normal">מהירות</button>
+        <button id="speed-plus" class="speed-step-btn">＋</button>
+    </div>
+    <div id="piano-container">
+        <div id="rig">
+            <div id="cabinet">
+                <div id="cabinet-lip"></div>
+                <div id="keywell">
+                    <div id="practice-hint" class="hidden">לחצו על הקליד כשהדמות מגיעה לקו 👇</div>
+                    <div id="note-lane" class="hidden"></div>
+                    <div id="staff-wrap"><div id="staff-inner"></div></div>
+                    <div class="piano" id="piano"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="start-screen"></div>
+
+<a class="sol-home-btn" href="https://portal.smoove.io/gsbmtbnbbf1yd87kbofd1/Category?category=qqb" target="_top" aria-label="חזרה למסך הבית">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 11l9-8 9 8" />
+        <path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10" />
+    </svg>
+</a>
+<div class="sol-nav">
+  <a class="sol-nav-btn sol-nav-next" href="https://hanibarsol.github.io/sol-haverim-piano/" target="_top" aria-label="להמשך">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M15 5l-7 7 7 7" />
+    </svg>
+  </a>
+  <a class="sol-nav-btn sol-nav-back" href="https://hanibarsol.github.io/sol-nice2meet-piano/" target="_top" aria-label="אחורה">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M9 5l7 7-7 7" />
+    </svg>
+  </a>
+</div>
+
+<div id="calib-panel">
+    <button id="calib-mark">סמן עכשיו ▶</button>
+    <div style="display:flex; justify-content:space-between;">
+        <button id="calib-undo">בטל אחרון</button>
+        <button id="calib-clear">נקה הכל</button>
+    </div>
+    <button id="calib-copy" style="width:100%">העתק תוצאות</button>
+    <textarea id="calib-copy-box" readonly rows="3"></textarea>
+    <div id="calib-list"></div>
+</div>
+
+<script>
+    const startScreen = document.getElementById('start-screen');
+    const pianoElement = document.getElementById('piano');
+    const pianoContainer = document.getElementById('piano-container');
+    const videoWrap = document.getElementById('video-wrap');
+    const noteLane = document.getElementById('note-lane');
+    const modeWatchBtn = document.getElementById('mode-watch');
+    const modePracticeBtn = document.getElementById('mode-practice');
+    const audioToggleBtn = document.getElementById('audio-toggle');
+    const audioToggleWrap = document.getElementById('audio-toggle-wrap');
+    const practiceHint = document.getElementById('practice-hint');
+    let hintTimeout = null;
+    function showPracticeHint() {
+        practiceHint.classList.remove('hidden');
+        clearTimeout(hintTimeout);
+        hintTimeout = setTimeout(() => practiceHint.classList.add('hidden'), 4500);
+    }
+    function dismissPracticeHint() {
+        practiceHint.classList.add('hidden');
+        clearTimeout(hintTimeout);
+    }
+
+    // Pilot: two modes instead of one screen that tries to do both jobs.
+    // "צפייה" (watch) — video full-size, piano free to noodle on but with
+    // no timing pressure, since nothing is being graded while just watching.
+    // "תרגול" (practice) — video shrinks to a quiet strip (song keeps
+    // playing for timing/audio), and the falling-note lane above the keys
+    // becomes the main thing to look at, so eyes don't have to jump
+    // between a video up top and a keyboard down below.
+    let mode = 'watch';
+    // Practice-only: whether the video's own audio (song + Hani singing
+    // along) plays while the child practices, independent of the piano's
+    // own sound. Defaults OFF — nothing plays unasked; a child/parent who
+    // wants the singing accompaniment switches it on deliberately.
+    let audioOn = false;
+    function applyAudioState() {
+        if (!player) return;
+        if (mode === 'practice' && !audioOn) {
+            if (player.mute) player.mute();
+        } else {
+            if (player.unMute) player.unMute();
+        }
+    }
+    function setMode(next) {
+        // Any explicit watch/practice switch exits "לנסות לבד" — the two
+        // don't mix (one is audio/time-driven, the other self-paced).
+        if (soloMode) {
+            soloMode = false;
+            soloBtn.classList.remove('active');
+            soloBtn.textContent = 'אני רוצה לנסות לבד';
+            staffWrap.classList.remove('active');
+        }
+        mode = next;
+        videoWrap.classList.toggle('mini', mode === 'practice');
+        noteLane.classList.toggle('hidden', mode !== 'practice');
+        modeWatchBtn.classList.toggle('active', mode === 'watch');
+        modePracticeBtn.classList.toggle('active', mode === 'practice');
+        // Entering practice is the video's job, never a tap — but only
+        // because the video is what teaches the child how to press. Once it
+        // has reached the play-along stretch that lesson has been given, so
+        // inside the stretch the button is live and a child who slipped back
+        // to צפייה can return. Outside it, dimmed. See refreshPracticeLock.
+        refreshPracticeLock();
+        audioToggleWrap.classList.toggle('hidden', mode !== 'practice');
+        // The water-fill result on each key is practice-mode feedback — left
+        // showing in watch mode it just reads as a stray blue stain on the
+        // keys.
+        Object.values(keyFillEls).forEach(el => { el.style.opacity = mode === 'practice' ? '1' : '0'; });
+        if (mode === 'watch') {
+            activeTiles.forEach(tile => tile.remove());
+            activeTiles.clear();
+            dismissPracticeHint();
+        } else {
+            // Every fresh entry into practice starts clean — otherwise a key
+            // already "full" from an earlier attempt this session stays full
+            // forever, which stops meaning anything as feedback.
+            resetKeyFills();
+            showPracticeHint();
+        }
+        applyAudioState();
+        sizeKeys();
+    }
+    modeWatchBtn.addEventListener('click', () => setMode('watch'));
+
+    const lockHint = document.getElementById('mode-lock-hint');
+    let lockHintTimeout = null;
+
+    // Where the video stands relative to its play-along stretch. AUTO_PRACTICE_*
+    // are declared further down; these only ever run from event handlers and
+    // the polling loop, long after that line has executed.
+    function practiceStretchState() {
+        const t = (player && player.getCurrentTime) ? player.getCurrentTime() : 0;
+        if (t < AUTO_PRACTICE_START) return 'before';
+        if (t < AUTO_PRACTICE_END) return 'inside';
+        return 'after';
+    }
+
+    // Dimmed exactly when tapping it would not be allowed. The stretch here
+    // runs 0:13-2:33 — nearly the whole video — so a child who taps צפייה
+    // partway through must be able to come back; being shut out until the
+    // video ends would cost them the lesson, not a moment of it. Called from
+    // setMode and from the polling loop, because the 2:33 edge can pass while
+    // the page is already in watch mode, where setMode never fires.
+    function refreshPracticeLock() {
+        modePracticeBtn.classList.toggle(
+            'locked', mode === 'watch' && practiceStretchState() !== 'inside');
+    }
+
+    modePracticeBtn.addEventListener('click', () => {
+        // Dimmed is not dead. Where the tap is not allowed it answers with a
+        // sentence, because a button that does nothing at all reads to a
+        // four-year-old as a fault. Do NOT "fix" this by adding disabled or
+        // pointer-events: none.
+        //
+        // The sentence has to match the reason. Before the stretch, the
+        // explanation is still coming. After it, what ended is the playing,
+        // not the video — 2:33 leaves 27s of Hani's closing still to run, so
+        // "הסרטון נגמר" would be untrue for most of a minute, and "קודם
+        // צופים בהסבר" would be a lie either way: the child watched the
+        // explanation a long time ago. Keep any replacement under ~250px
+        // wide; the pill is nowrap and the platform supports 320px screens.
+        const state = practiceStretchState();
+        if (mode === 'watch' && state !== 'inside') {
+            lockHint.textContent = state === 'before'
+                ? 'רגע, קודם צופים בהסבר 👀'
+                : 'סיימנו לנגן! אפשר להתחיל שוב 🔁';
+            lockHint.classList.remove('hidden');
+            clearTimeout(lockHintTimeout);
+            lockHintTimeout = setTimeout(() => lockHint.classList.add('hidden'), 2600);
+            return;
+        }
+        setMode('practice');
+    });
+
+    // The lesson opens in watch mode at t=0, before the stretch, so the button
+    // starts dimmed. refreshPracticeLock() keeps it in step from here on.
+    modePracticeBtn.classList.add('locked');
+    audioToggleBtn.addEventListener('click', () => {
+        audioOn = !audioOn;
+        audioToggleBtn.classList.toggle('active', audioOn);
+        audioToggleBtn.textContent = audioOn ? '🔊' : '🔇';
+        applyAudioState();
+    });
+
+    // --- "אני רוצה לנסות לבד" — self-paced staff view. Every note in the
+    // song is laid out once, left to right in order, at its real pitch
+    // height on a 5-line staff (do sits on a ledger line below the staff,
+    // same as real sheet music). No falling animation, no audio timing —
+    // the child just works through the sequence at their own pace.
+    let soloMode = false;
+    let soloIdx = 0;
+    const soloBtn = document.getElementById('solo-btn');
+    const staffWrap = document.getElementById('staff-wrap');
+    const staffInner = document.getElementById('staff-inner');
+    const staffNoteEls = [];
+    // Pitch as steps of half a line-space, counted down from the top staff
+    // line: the staff lines land on the even steps, and דו sits on its own
+    // ledger line 10 steps down, below the staff proper.
+    // אין כאן חמשה ואין גובה שמייצג צליל, וזה מכוון. כשתו חייב לשבת
+    // בגובה שמייצג את הצליל שלו, כל טווח הצלילים אוכל את גובה הרצועה
+    // ולדמות נשאר שליש ממנו - 25 פיקסלים, שילד בן 4 לא רואה ובוודאי
+    // לא מצליח להחזיק. בשורה אחת הדמות מקבלת כמעט את כל הגובה.
+    // מצב התרגול הרגיל ממשיך לעבוד על החמשה כרגיל.
+    const NOTE_HOLD_D = 84;  // דמות של תו שמחזיקים
+    const NOTE_TAP_D  = 64;  // דמות של תו שנוגעים בו
+    const staffWaterEls = [];
+    const ringEls = [];
+
+    const WAVE_TOP  = "M-100,0 q25,-6 50,0 t50,0 t50,0 t50,0 t50,0 t50,0";
+    const WAVE_PATH = WAVE_TOP + " V115 H-100 Z";
+    function waterSvg(opacity) {
+        return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">' +
+            '<path class="wv" fill="#0F8C82" fill-opacity="' + opacity + '" d="' + WAVE_PATH + '" transform="translate(0,100)"></path>' +
+            '<path class="wv" fill="none" stroke="#BFF6EE" stroke-width="6" stroke-opacity="0.95" d="' + WAVE_TOP + '" transform="translate(0,100)"></path>' +
+            '</svg>';
+    }
+    function setWater(el, p) {
+        if (!el) return;
+        const t = 'translate(' + (Math.sin(Date.now() / 240) * 6) + ',' + ((1 - p) * 100) + ')';
+        el.querySelectorAll('.wv').forEach(wv => wv.setAttribute('transform', t));
+    }
+    function paintNoteFill(idx, p) {
+        setWater(staffWaterEls[idx], p);
+        const r = ringEls[idx];
+        if (r) r.style.setProperty('--p', p.toFixed(3));
+    }
+
+    function buildStaff() {
+        staffInner.innerHTML = '';
+        staffNoteEls.length = 0;
+        staffWaterEls.length = 0;
+        ringEls.length = 0;
+        const wrapH = staffWrap.clientHeight || 116;
+        const scale = Math.min(1, (wrapH - 16) / NOTE_HOLD_D);
+        const spacing = NOTE_HOLD_D * scale * 1.28;
+        staffInner.style.width = (songNotes.length * spacing + spacing) + 'px';
+        songNotes.forEach((n, i) => {
+            const d = Math.round((n.hold ? NOTE_HOLD_D : NOTE_TAP_D) * scale);
+            const note = document.createElement('div');
+            note.className = 'staff-note';
+            if (i < soloIdx) note.classList.add('done');
+            note.style.left = (spacing * 0.6 + i * spacing) + 'px';
+            note.style.top = (wrapH / 2) + 'px';
+            note.style.width = d + 'px';
+            note.style.height = d + 'px';
+            const avatar = document.createElement('div');
+            avatar.className = 'staff-note-avatar';
+            const img = document.createElement('img');
+            img.src = characterImages[noteLetterOrder.indexOf(n.note[0])] || '';
+            img.draggable = false;
+            avatar.appendChild(img);
+            const water = document.createElement('div');
+            water.className = 'note-water';
+            water.innerHTML = waterSvg('0.72');
+            avatar.appendChild(water);
+            staffWaterEls.push(water);
+            note.appendChild(avatar);
+            const ring = document.createElement('div');
+            ring.className = 'hold-ring';
+            note.appendChild(ring);
+            ringEls.push(ring);
+
+            // מסלול שני: מחזיקים ישירות על הדמות. אירועי מגע עם ביטול
+            // ברירת המחדל - זה מה שמונע את ההגדלה בספארי.
+            note.addEventListener('touchstart', (e) => {
+                if (e.cancelable) e.preventDefault();
+                circleDown(i, note);
+            }, { passive: false });
+            const cUp = (e) => { if (e.cancelable) e.preventDefault(); circleUp(i, note); };
+            note.addEventListener('touchend', cUp, { passive: false });
+            note.addEventListener('touchcancel', cUp, { passive: false });
+            note.addEventListener('pointerdown', (e) => {
+                if (e.pointerType === 'touch') return;
+                e.preventDefault(); circleDown(i, note);
+            });
+            ['pointerup', 'pointerleave', 'pointercancel'].forEach(t =>
+                note.addEventListener(t, (e) => { if (e.pointerType === 'touch') return; circleUp(i, note); }));
+
+            staffInner.appendChild(note);
+            staffNoteEls.push(note);
+            if (i < soloIdx) paintNoteFill(i, 1);
+        });
+        updateStaffScroll(true);
+    }
+
+    // ===================== החזקת תו =====================
+    let soloHold = null;
+    let drainSeq = 0;
+    let chimeSynth = null;
+
+    function holdChime() {
+        try {
+            if (!chimeSynth) {
+                chimeSynth = new Tone.Synth({
+                    oscillator: { type: 'sine' },
+                    envelope: { attack: 0.005, decay: 0.4, sustain: 0, release: 0.1 }
+                }).toDestination();
+                chimeSynth.volume.value = -14;
+            }
+            chimeSynth.triggerAttackRelease('C7', 0.25);
+        } catch (err) {}
+    }
+
+    // הקליד מהבהב תמיד, גם כשניגנו מהדמות, כדי שהקשר ביניהם יישאר גלוי.
+    function completeSoloNote(idx, pressedEl) {
+        const n = songNotes[idx];
+        const keyEl = keyByNote[n.note];
+        fillKey(n.note);
+        if (keyEl) {
+            keyEl.classList.add('correct-flash');
+            setTimeout(() => keyEl.classList.remove('correct-flash'), 550);
+        }
+        const host = pressedEl || keyEl;
+        if (host) {
+            const star = document.createElement('div');
+            star.className = 'star-pop';
+            star.textContent = '⭐';
+            host.appendChild(star);
+            setTimeout(() => star.remove(), 550);
+        }
+        paintNoteFill(idx, 1);
+        markStaffNoteDone(idx);
+        soloIdx++;
+        updateStaffScroll();
+    }
+
+    function startHold(idx, token) {
+        if (soloHold) return;
+        drainSeq++;
+        soloHold = { idx: idx, token: token, full: false, t0: Date.now(), need: songNotes[idx].dur * 1000 };
+        const el = staffNoteEls[idx];
+        if (el) el.classList.add('holding');
+        holdTick();
+    }
+
+    function holdTick() {
+        if (!soloHold) return;
+        const p = Math.min(1, (Date.now() - soloHold.t0) / soloHold.need);
+        paintNoteFill(soloHold.idx, p);
+        if (p >= 1 && !soloHold.full) {
+            soloHold.full = true;
+            const el = staffNoteEls[soloHold.idx];
+            if (el) el.classList.add('hold-full');
+            holdChime();
+        }
+        soloHold.raf = requestAnimationFrame(holdTick);
+    }
+
+    function releaseHold(token) {
+        if (!soloHold || soloHold.token !== token) return;
+        const h = soloHold;
+        soloHold = null;
+        cancelAnimationFrame(h.raf);
+        const el = staffNoteEls[h.idx];
+        if (el) el.classList.remove('holding', 'hold-full');
+        const p = Math.min(1, (Date.now() - h.t0) / h.need);
+        if (p >= HOLD_TOL) completeSoloNote(h.idx, h.token);
+        else drainNote(h.idx, p);
+    }
+
+    // שחרור מוקדם אינו טעות - המים נשפכים החוצה ומנסים שוב.
+    function drainNote(idx, from) {
+        const t0 = Date.now();
+        const mine = ++drainSeq;
+        (function step() {
+            if (mine !== drainSeq) return;
+            const q = Math.min(1, (Date.now() - t0) / 280);
+            paintNoteFill(idx, from * (1 - q));
+            if (q < 1) requestAnimationFrame(step);
+        })();
+    }
+
+    function cancelHold() {
+        if (!soloHold) return;
+        const h = soloHold;
+        soloHold = null;
+        cancelAnimationFrame(h.raf);
+        const el = staffNoteEls[h.idx];
+        if (el) el.classList.remove('holding', 'hold-full');
+        paintNoteFill(h.idx, 0);
+    }
+
+    function circleDown(idx, el) {
+        if (!soloMode || soloHold || idx !== soloIdx) return;
+        const n = songNotes[idx];
+        const keyEl = keyByNote[n.note];
+        if (keyEl) keyEl.classList.add('active');
+        dismissPracticeHint();
+        try { sampler.triggerAttack(n.note); } catch (err) {}
+        if (n.hold) startHold(idx, el);
+        else completeSoloNote(idx, el);
+    }
+    function circleUp(idx, el) {
+        const n = songNotes[idx];
+        if (!n) return;
+        try { sampler.triggerRelease(n.note); } catch (err) {}
+        const keyEl = keyByNote[n.note];
+        if (keyEl) keyEl.classList.remove('active');
+        releaseHold(el);
+    }
+    // =================== סוף התוספת ===================
+
+    function markStaffNoteDone(index) {
+        const el = staffNoteEls[index];
+        if (el) el.classList.add('done');
+    }
+
+    // The staff used to advance with scrollIntoView({behavior:'smooth'}),
+    // which lands as a hard jump rather than movement: several mobile
+    // browsers ignore the smooth option on that call outright, and a child
+    // playing quickly restarts the animation before the previous one has
+    // finished, so it stutters even where it is honoured. This runs one
+    // continuous loop that eases the row toward whichever note is current,
+    // re-reading the target every frame — so the characters glide instead
+    // of hopping, and the note being played stays centred at any pace.
+    let staffScrollRaf = 0;
+
+    function staffScrollTarget() {
+        const cur = staffNoteEls[soloIdx] || staffNoteEls[staffNoteEls.length - 1];
+        if (!cur) return null;
+        const max = Math.max(0, staffInner.offsetWidth - staffWrap.clientWidth);
+        // .staff-note is translate(-50%) off its own left, so offsetLeft is
+        // already the character's visual centre.
+        return Math.min(max, Math.max(0, cur.offsetLeft - staffWrap.clientWidth / 2));
+    }
+
+    function updateStaffScroll(instant) {
+        const target = staffScrollTarget();
+        if (target === null) return;
+        // Building or resizing the staff isn't the child advancing — there is
+        // nothing to glide from, so land on the spot.
+        if (instant) {
+            if (staffScrollRaf) { cancelAnimationFrame(staffScrollRaf); staffScrollRaf = 0; }
+            staffWrap.scrollLeft = target;
+            return;
+        }
+        // A loop already in flight picks the new note up on its next frame;
+        // starting a second one would fight it for the same scrollLeft.
+        if (staffScrollRaf) return;
+        const step = () => {
+            const to = staffScrollTarget();
+            if (to === null) { staffScrollRaf = 0; return; }
+            const diff = to - staffWrap.scrollLeft;
+            if (Math.abs(diff) < 0.5) {
+                staffWrap.scrollLeft = to;
+                staffScrollRaf = 0;
+                return;
+            }
+            staffWrap.scrollLeft += diff * 0.18;
+            staffScrollRaf = requestAnimationFrame(step);
+        };
+        staffScrollRaf = requestAnimationFrame(step);
+    }
+
+    soloBtn.addEventListener('click', () => {
+        cancelHold();
+        soloMode = !soloMode;
+        soloBtn.classList.toggle('active', soloMode);
+        soloBtn.textContent = soloMode ? 'חזרה לתרגול הרגיל' : 'אני רוצה לנסות לבד';
+        if (soloMode) {
+            if (player && player.pauseVideo) player.pauseVideo();
+            isPaused = true;
+            playPauseBtn.textContent = '▶';
+            videoWrap.classList.add('mini');
+            noteLane.classList.add('hidden');
+            staffWrap.classList.add('active');
+            soloIdx = 0;
+            staffNoteEls.forEach(el => el.classList.remove('done'));
+            dismissPracticeHint();
+            // Leftover state from the timed practice mode shouldn't carry
+            // into a fresh "לנסות לבד" attempt.
+            Object.values(keyByNote).forEach(el => el.classList.remove('due'));
+            resetKeyFills();
+            // Falling tiles stop updating the instant soloMode flips (see the
+            // renderFallingLane guard above) — without clearing them here they'd
+            // sit frozen mid-fall and reappear all at once, out of sync, the
+            // moment practice mode is visible again.
+            activeTiles.forEach(tile => tile.remove());
+            activeTiles.clear();
+        } else {
+            staffWrap.classList.remove('active');
+            noteLane.classList.toggle('hidden', mode !== 'practice');
+            videoWrap.classList.toggle('mini', mode === 'practice');
+        }
+        // sizeKeys() is what sets --staff-h, so the staff strip only takes on
+        // its real height here. Laying the notes out before this point
+        // measured the strip at its previous height and positioned דו for a
+        // taller box than it got — a gap above the lines, low characters cut
+        // off below.
+        sizeKeys();
+        if (soloMode) buildStaff();
+    });
+
+    // This lesson only: the video asks kids to play along from 00:13 to
+    // 02:33, so the page switches into practice mode automatically at the
+    // start of that stretch and back to watch automatically once it ends —
+    // instead of relying on the child to notice and tap the מצב buttons
+    // themselves. Each edge only fires once per play-through (not a
+    // continuous lock), so a manual tap in between still works normally;
+    // both reset when the song is replayed from the start.
+    const AUTO_PRACTICE_START = 13;
+    const AUTO_PRACTICE_END = 153;
+    let autoEnterFired = false;
+    let autoExitFired = false;
+    // Last clock reading, so a jump backwards (replay, rewind, a drag on
+    // YouTube's own progress bar) can be spotted from the clock itself.
+    let lastVideoTime = 0;
+
+    // Calibration tool is dev-only: hidden from students, shown only when
+    // building/checking a song's timing map via ?admin=1 in the URL.
+    if (new URLSearchParams(location.search).get('admin') === '1') {
+        document.getElementById('calib-panel').style.display = 'block';
+    }
+
+    // Real YouTube IFrame API (instead of one-way postMessage guesses) so we can
+    // reliably read back the current playback time for the calibration tool below.
+    let player = null;
+    let pendingPlay = false;
+    window.onYouTubeIframeAPIReady = function () {
+        player = new YT.Player('lesson-video', {
+            videoId: 'EIVsEIAVNZo',
+            playerVars: { playsinline: 1, rel: 0 },
+            events: {
+                onReady: () => {
+                    // applyAudioState() may have already run once, before
+                    // the player existed (e.g. songs that call
+                    // setMode('practice') immediately on load) — it was a
+                    // no-op then, so re-apply now that mute()/unMute() are
+                    // actually callable.
+                    applyAudioState();
+                    if (pendingPlay) player.playVideo();
+                },
+                onStateChange: (e) => {
+                    // Once the song ends there was no way back in — flip
+                    // the pause button into a "play again" state instead of
+                    // leaving a dead, unresponsive-looking control.
+                    if (e.data === YT.PlayerState.ENDED) {
+                        isPaused = true;
+                        playPauseBtn.textContent = '🔁';
+                    }
+                }
+            }
+        });
+    };
+
+    startScreen.addEventListener('click', async () => {
+        await Tone.start();
+        await reverb.ready;
+        startScreen.style.display = 'none';
+        console.log("Audio Context started");
+
+        if (player && player.playVideo) player.playVideo();
+        else pendingPlay = true;
+    });
+
+    // Speed stepper: minus/plus move in 0.25 steps between 0.5x-1.5x,
+    // the center button both shows the current speed and resets to normal.
+    const speedSteps = [0.5, 0.75, 1, 1.35, 1.5];
+    let speedIndex = 2; // 1x
+    const speedMinusBtn = document.getElementById('speed-minus');
+    const speedPlusBtn = document.getElementById('speed-plus');
+    const speedResetBtn = document.getElementById('speed-reset');
+
+    function applySpeed(index) {
+        speedIndex = Math.max(0, Math.min(speedSteps.length - 1, index));
+        const rate = speedSteps[speedIndex];
+        if (player && player.setPlaybackRate) player.setPlaybackRate(rate);
+        const isNormal = rate === 1;
+        speedResetBtn.textContent = isNormal ? 'מהירות' : `×${rate}`;
+        speedResetBtn.classList.toggle('is-normal', isNormal);
+    }
+
+    speedMinusBtn.addEventListener('click', () => applySpeed(speedIndex - 1));
+    speedPlusBtn.addEventListener('click', () => applySpeed(speedIndex + 1));
+    speedResetBtn.addEventListener('click', () => applySpeed(2));
+
+    // Pause/resume — the falling notes and due-highlight are both driven
+    // off player.getCurrentTime() every frame, so pausing the video just
+    // naturally freezes them in place too; nothing extra needed for that.
+    const playPauseBtn = document.getElementById('play-pause');
+    let isPaused = false;
+    playPauseBtn.addEventListener('click', () => {
+        if (!player) return;
+        if (player.getPlayerState && player.getPlayerState() === YT.PlayerState.ENDED) {
+            // Song's over — this click means "play it again from the top,"
+            // not "resume," so also reset the note-timing feedback state.
+            player.seekTo(0);
+            player.playVideo();
+            songIdx = 0;
+            songHit = false;
+            resetKeyFills();
+            autoEnterFired = false;
+            autoExitFired = false;
+            setMode('watch');
+            isPaused = false;
+            playPauseBtn.textContent = '⏸';
+            return;
+        }
+        isPaused = !isPaused;
+        if (isPaused) { player.pauseVideo(); playPauseBtn.textContent = '▶'; }
+        else { player.playVideo(); playPauseBtn.textContent = '⏸'; }
+    });
+
+    // --- Calibration tool: tap "mark now" every time a character hits the green
+    // line, and it logs the exact video timestamp. Not part of the kids' UI —
+    // this is a dev tool for building a note-timing map for this song later.
+    const calibMarks = [];
+    const calibListEl = document.getElementById('calib-list');
+    const calibMarkBtn = document.getElementById('calib-mark');
+    const calibUndoBtn = document.getElementById('calib-undo');
+    const calibClearBtn = document.getElementById('calib-clear');
+    const calibCopyBtn = document.getElementById('calib-copy');
+
+    function renderCalibList() {
+        calibListEl.innerHTML = calibMarks
+            .map((t, i) => `${i + 1}. ${t.toFixed(2)}s`)
+            .join('<br>');
+        calibListEl.scrollTop = calibListEl.scrollHeight;
+    }
+
+    calibMarkBtn.addEventListener('click', () => {
+        if (!player || !player.getCurrentTime) return;
+        calibMarks.push(player.getCurrentTime());
+        renderCalibList();
+    });
+    calibUndoBtn.addEventListener('click', () => { calibMarks.pop(); renderCalibList(); });
+    calibClearBtn.addEventListener('click', () => { calibMarks.length = 0; renderCalibList(); });
+    const calibCopyBox = document.getElementById('calib-copy-box');
+    calibCopyBtn.addEventListener('click', () => {
+        const text = calibMarks.map(t => t.toFixed(2)).join(', ');
+        // The Clipboard API silently fails in some mobile/embedded browser
+        // contexts with no visible error — always show the text in a
+        // selectable box too, so copying works no matter what, by hand if
+        // the automatic copy didn't actually go through.
+        calibCopyBox.value = text;
+        calibCopyBox.style.display = 'block';
+        calibCopyBox.focus();
+        calibCopyBox.select();
+        navigator.clipboard.writeText(text).then(() => {
+            calibCopyBtn.textContent = 'הועתק! (או בחרי ידנית למטה)';
+        }).catch(() => {
+            calibCopyBtn.textContent = 'בחרי את הטקסט למטה ותעתיקי ידנית';
+        });
+        setTimeout(() => { calibCopyBtn.textContent = 'העתק תוצאות'; }, 2500);
+    });
+
+    // --- Note-timing feedback for "יונתן הקטן", built from Hani's calibration
+    // marks (video timestamps where each character hits the green line) plus
+    // the character/note sequence she gave for those marks. All in octave 4
+    // since the melody only uses do-re-mi-fa-sol and stays in one octave.
+    const solfegeToLetter = { do: 'C', re: 'D', mi: 'E', fa: 'F', sol: 'G', la: 'A', si: 'B' };
+    const songTimes = [19.39, 22.63, 25.41, 27.94, 30.96, 33.96, 36.67, 39.70, 42.50, 45.50, 48.19, 50.81, 53.95, 57.98, 61.23, 64.13, 66.67, 69.59, 72.35, 75.23, 78.39, 81.33, 84.29, 87.16, 91.65, 93.96, 96.36, 98.51, 100.73, 103.07, 105.56, 107.86, 110.16, 112.39, 114.40, 116.43, 118.58, 120.82, 123.88, 126.39, 129.16, 131.99, 134.47, 137.28, 140.08, 142.95, 145.84, 148.46, 150.89];
+    const songSyllables = ['sol', 'mi', 'mi', 'fa', 're', 're', 'do', 're', 'mi', 'fa', 'sol', 'sol', 'sol', 'sol', 'mi', 'mi', 'fa', 're', 're', 'do', 'mi', 'sol', 'sol', 'do', 're', 're', 're', 're', 're', 'mi', 'fa', 'mi', 'mi', 'mi', 'mi', 'mi', 'fa', 'sol', 'sol', 'mi', 'mi', 'fa', 're', 're', 'do', 'mi', 'sol', 'sol', 'do'];
+    const songNotes = songTimes.map((t, i) => ({ time: t, note: solfegeToLetter[songSyllables[i]] + '4' }));
+
+    // --- אילו תווים מוחזקים ---
+    // בשיר הזה אי אפשר לגזור את האורך מהנתונים. כל 48 המרווחים נעים בין
+    // 2.01 ל-3.25 שניות ברצף אחד, כי הני מנגנת אותו לאט למתחילים וסימנה
+    // פעימה קבועה. גזירה מהמרווחים הייתה הופכת את כל 49 התווים להחזקות.
+    //
+    // לכן הרשימה כאן מפורשת: הני האזינה לשיר וסימנה באוזן. המספרים הם
+    // מיקום התו בשיר, מ-1. אין כאן שום חישוב, ואסור להחליף אותם בחישוב.
+    //
+    // כולן באותו אורך בכוונה. אורך שונה היה מחייב גם גודל שונה לדמות,
+    // והני העדיפה סטנדרט אחד על פני שוני שמסבך את המראה.
+    const HOLD_NOTES = new Set([3, 6, 13, 16, 19, 24, 31, 38, 41, 44, 49]);
+    const HOLD_SECONDS = 1.1;
+    const HOLD_TOL = 0.90;  // 90% מהאורך כבר נחשב מלא
+    songNotes.forEach((n, i) => {
+        n.hold = HOLD_NOTES.has(i + 1);
+        n.dur = HOLD_SECONDS;
+    });
+
+    // Per-key "fill" progress (idea: each correct-in-time press fills up
+    // the key a little, like pouring water into a glass — by the end of
+    // the song, how full each key got shows how well that note went).
+    // Denominator is how many times that exact key is due across the
+    // whole song; numerator is how many of those were hit correctly.
+    const songNoteTotals = {};
+    songNotes.forEach(n => { songNoteTotals[n.note] = (songNoteTotals[n.note] || 0) + 1; });
+    const songNoteCorrect = {};
+    const keyFillEls = {};
+    function fillKey(note) {
+        const total = songNoteTotals[note];
+        const fillEl = keyFillEls[note];
+        const keyEl = keyByNote[note];
+        if (!total || !fillEl || !keyEl) return;
+        songNoteCorrect[note] = (songNoteCorrect[note] || 0) + 1;
+        const pct = Math.min(1, songNoteCorrect[note] / total);
+        // Pixels, not a CSS percentage — sidesteps any ambiguity about
+        // whether the key's own height counts as "definite" for percentage
+        // resolution on an absolutely positioned child.
+        fillEl.style.height = Math.round(pct * keyEl.clientHeight) + 'px';
+
+        // Brief splash on the surface line, then it settles still — retrigger
+        // the animation even if it's already mid-splash from a moment ago.
+        fillEl.classList.remove('pouring');
+        void fillEl.offsetWidth;
+        fillEl.classList.add('pouring');
+        clearTimeout(fillEl._pourTimeout);
+        fillEl._pourTimeout = setTimeout(() => fillEl.classList.remove('pouring'), 900);
+    }
+
+    // Starting the song over should start the results over too — otherwise
+    // a key already "full" from the last attempt stays full forever, which
+    // stops meaning anything.
+    function resetKeyFills() {
+        Object.keys(songNoteCorrect).forEach(note => { delete songNoteCorrect[note]; });
+        Object.values(keyFillEls).forEach(el => {
+            el.classList.remove('pouring');
+            el.style.height = '0px';
+        });
+    }
+
+    const NOTE_LEAD = 0.6;
+    const NOTE_TAIL = 0.45;
+    let songIdx = 0;
+    let songHit = false;
+    const keyByNote = {};
+
+    const characterImages = ["דו.png", "רה.png", "מי.png", "פה.png", "סול.png", "לה.png", "סי.png"];
+
+    // Map every note to its real recorded sample (24 files exist in sounds/,
+    // the previous version only wired up 4 of them and let Tone.js pitch-shift the rest).
+    const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    // Single octave: this song doesn't need the range of a second one, and
+    // one octave keeps the correct-key feedback unambiguous (matches the
+    // pattern used for the other calibrated lessons).
+    const octaves = [4];
+
+    function noteToFile(note, octave) {
+        const letter = note[0].toLowerCase();
+        const sharp = note.includes('#') ? 'd' : '';
+        return `sounds/${letter}${sharp}${octave}.wav`;
+    }
+
+    // sounds/d4.wav and sounds/e4.wav actually contain mislabeled D3/E3 audio
+    // (a leftover export mistake, not something the recording session did wrong).
+    // Skip them so Tone.Sampler falls back to pitch-shifting from the nearest
+    // good sample (the same behavior the original piano already relies on).
+    const knownBadSamples = new Set(['D4', 'E4']);
+
+    const sampleUrls = {};
+    octaves.forEach(octave => {
+        notes.forEach(note => {
+            const fullNote = note + octave;
+            if (knownBadSamples.has(fullNote)) return;
+            sampleUrls[fullNote] = noteToFile(note, octave);
+        });
+    });
+
+    // Shared raw Web Audio context (Tone.js's own) so the synthesized extra
+    // instruments (organ/guitar/flute/drums) and the real piano samples all
+    // pass through one master volume knob instead of being wired separately.
+    const audioCtx = Tone.getContext().rawContext;
+    const masterGain = audioCtx.createGain();
+    masterGain.gain.value = 1;
+    masterGain.connect(audioCtx.destination);
+
+    // A subtle reverb gives the notes a gentle "sustain pedal" quality —
+    // like they keep resonating in the room rather than stopping dead.
+    const reverb = new Tone.Reverb({ decay: 2.5, wet: 0.32 }).connect(masterGain);
+
+    const sampler = new Tone.Sampler({
+        urls: sampleUrls,
+        baseUrl: "./",
+        // A real piano note keeps ringing for a while after the key is released.
+        // The default release (~0.1s) cut notes off almost the instant a child
+        // lifted their finger, especially on quick taps. 2.2s lets it fade out naturally.
+        attack: 0.005,
+        release: 2.2,
+        onload: () => console.log("Sounds loaded!"),
+        onerror: (e) => console.log("Error loading sound", e)
+    }).connect(reverb);
+
+    // --- Extra instruments (organ/guitar/flute/drums) — synthesized, since
+    // we only have real recordings for the piano. "piano" mode keeps using
+    // the Tone.Sampler above untouched; everything else routes here.
+    let currentMode = 'piano';
+    const synthActive = new Map();
+
+    function noteNameToFreq(name) {
+        const idx = { C: 0, 'C#': 1, D: 2, 'D#': 3, E: 4, F: 5, 'F#': 6, G: 7, 'G#': 8, A: 9, 'A#': 10, B: 11 };
+        const m = name.match(/^([A-G]#?)(\d)$/);
+        const midi = (parseInt(m[2], 10) + 1) * 12 + idx[m[1]];
+        return 440 * Math.pow(2, (midi - 69) / 12);
+    }
+
+    function makeNoiseBuffer(duration) {
+        const size = Math.max(1, Math.floor(audioCtx.sampleRate * duration));
+        const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < size; i++) data[i] = Math.random() * 2 - 1;
+        return buffer;
+    }
+
+    function drumNoise(now, opts) {
+        const src = audioCtx.createBufferSource();
+        src.buffer = makeNoiseBuffer(opts.decay + 0.05);
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = opts.filterType || 'highpass';
+        filter.frequency.value = opts.freq || 4000;
+        if (opts.q) filter.Q.value = opts.q;
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(opts.vol, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + opts.decay);
+        src.connect(filter); filter.connect(g); g.connect(masterGain);
+        src.start(now);
+    }
+
+    function drumTone(now, opts) {
+        const osc = audioCtx.createOscillator();
+        osc.type = opts.type || 'sine';
+        osc.frequency.setValueAtTime(opts.startFreq, now);
+        osc.frequency.exponentialRampToValueAtTime(Math.max(1, opts.endFreq), now + opts.pitchDecay);
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(opts.vol, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + opts.decay);
+        osc.connect(g); g.connect(masterGain);
+        osc.start(now); osc.stop(now + opts.decay + 0.05);
+    }
+
+    function playDrum(name) {
+        const now = audioCtx.currentTime;
+        switch (name) {
+            case 'kick': return drumTone(now, { type: 'sine', startFreq: 150, endFreq: 40, pitchDecay: 0.12, decay: 0.35, vol: 1 });
+            case 'snare':
+                drumNoise(now, { filterType: 'bandpass', freq: 1800, q: 0.7, decay: 0.18, vol: 0.9 });
+                return drumTone(now, { type: 'triangle', startFreq: 200, endFreq: 120, pitchDecay: 0.05, decay: 0.12, vol: 0.5 });
+            case 'closedhat': return drumNoise(now, { filterType: 'highpass', freq: 7000, decay: 0.06, vol: 0.6 });
+            case 'openhat': return drumNoise(now, { filterType: 'highpass', freq: 6000, decay: 0.35, vol: 0.5 });
+            case 'tom-low': return drumTone(now, { type: 'sine', startFreq: 140, endFreq: 90, pitchDecay: 0.1, decay: 0.3, vol: 0.9 });
+            case 'tom-mid': return drumTone(now, { type: 'sine', startFreq: 190, endFreq: 120, pitchDecay: 0.1, decay: 0.28, vol: 0.9 });
+            case 'tom-hi': return drumTone(now, { type: 'sine', startFreq: 260, endFreq: 160, pitchDecay: 0.09, decay: 0.24, vol: 0.9 });
+            case 'clap':
+                drumNoise(now, { filterType: 'bandpass', freq: 1500, q: 1.2, decay: 0.08, vol: 0.8 });
+                return drumNoise(now + 0.02, { filterType: 'bandpass', freq: 1500, q: 1.2, decay: 0.15, vol: 0.8 });
+            case 'rim': return drumTone(now, { type: 'square', startFreq: 900, endFreq: 850, pitchDecay: 0.02, decay: 0.06, vol: 0.4 });
+            case 'shaker': return drumNoise(now, { filterType: 'highpass', freq: 5000, decay: 0.12, vol: 0.35 });
+            case 'conga': return drumTone(now, { type: 'sine', startFreq: 380, endFreq: 210, pitchDecay: 0.05, decay: 0.2, vol: 0.85 });
+            case 'crash': return drumNoise(now, { filterType: 'highpass', freq: 5000, decay: 0.9, vol: 0.45 });
+        }
+    }
+
+    function synthNoteOn(key, freq) {
+        const now = audioCtx.currentTime;
+        const gain = audioCtx.createGain();
+        const nodes = [];
+
+        if (currentMode === 'guitar') {
+            gain.connect(masterGain);
+            [{ n: 1, vol: 0.5, decay: 1.05 }, { n: 2, vol: 0.32, decay: 0.75 }, { n: 3, vol: 0.19, decay: 0.55 },
+             { n: 4, vol: 0.11, decay: 0.4 }, { n: 5, vol: 0.06, decay: 0.28 }].forEach(function (h) {
+                const osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.value = freq * h.n;
+                const hg = audioCtx.createGain();
+                hg.gain.setValueAtTime(0, now);
+                hg.gain.linearRampToValueAtTime(h.vol, now + 0.003);
+                hg.gain.exponentialRampToValueAtTime(0.0006, now + h.decay);
+                osc.connect(hg); hg.connect(gain);
+                osc.start(now); osc.stop(now + h.decay + 0.1);
+                nodes.push(osc);
+            });
+            const sub = audioCtx.createOscillator();
+            sub.type = 'sine'; sub.frequency.value = freq / 2;
+            const subGain = audioCtx.createGain();
+            subGain.gain.setValueAtTime(0, now);
+            subGain.gain.linearRampToValueAtTime(0.18, now + 0.005);
+            subGain.gain.exponentialRampToValueAtTime(0.0005, now + 0.85);
+            sub.connect(subGain); subGain.connect(gain);
+            sub.start(now); sub.stop(now + 0.9);
+            nodes.push(sub);
+            const pick = audioCtx.createBufferSource();
+            pick.buffer = makeNoiseBuffer(0.02);
+            const pickFilter = audioCtx.createBiquadFilter();
+            pickFilter.type = 'highpass'; pickFilter.frequency.value = 2200;
+            const pickGain = audioCtx.createGain();
+            pickGain.gain.setValueAtTime(0.32, now);
+            pickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
+            pick.connect(pickFilter); pickFilter.connect(pickGain); pickGain.connect(gain);
+            pick.start(now);
+            nodes.push(pick);
+            gain.gain.value = 1;
+
+        } else if (currentMode === 'flute') {
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass'; filter.frequency.value = 2400; filter.Q.value = 0.3;
+            filter.connect(gain); gain.connect(masterGain);
+
+            const lfo = audioCtx.createOscillator();
+            lfo.type = 'sine'; lfo.frequency.value = 4.5;
+            const lfoGain = audioCtx.createGain();
+            lfoGain.gain.value = 2.4;
+            lfo.connect(lfoGain); lfo.start(now);
+            nodes.push(lfo);
+
+            [{ n: 1, vol: 0.30 }, { n: 2, vol: 0.05 }].forEach(function (h) {
+                const osc = audioCtx.createOscillator();
+                osc.type = 'sine'; osc.frequency.value = freq * h.n;
+                lfoGain.connect(osc.frequency);
+                const hg = audioCtx.createGain();
+                hg.gain.value = h.vol;
+                osc.connect(hg); hg.connect(filter);
+                osc.start(now);
+                nodes.push(osc);
+            });
+
+            const breath = audioCtx.createBufferSource();
+            breath.buffer = makeNoiseBuffer(2); breath.loop = true;
+            const breathFilter = audioCtx.createBiquadFilter();
+            breathFilter.type = 'bandpass'; breathFilter.frequency.value = freq * 1.5; breathFilter.Q.value = 1.4;
+            const breathGain = audioCtx.createGain();
+            breathGain.gain.value = 0.04;
+            breath.connect(breathFilter); breathFilter.connect(breathGain); breathGain.connect(filter);
+            breath.start(now);
+            nodes.push(breath);
+
+            const chiff = audioCtx.createBufferSource();
+            chiff.buffer = makeNoiseBuffer(0.05);
+            const chiffFilter = audioCtx.createBiquadFilter();
+            chiffFilter.type = 'bandpass'; chiffFilter.frequency.value = freq * 1.8; chiffFilter.Q.value = 1.2;
+            const chiffGain = audioCtx.createGain();
+            chiffGain.gain.setValueAtTime(0.12, now);
+            chiffGain.gain.exponentialRampToValueAtTime(0.0008, now + 0.05);
+            chiff.connect(chiffFilter); chiffFilter.connect(chiffGain); chiffGain.connect(filter);
+            chiff.start(now);
+            nodes.push(chiff);
+
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(1.05, now + 0.08);
+
+        } else {
+            // Organ: what used to be the piano's own engine — two
+            // slightly-detuned triangle oscillators through a filter that
+            // opens briefly then settles into a steady sustain tone.
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(4200, now);
+            filter.frequency.exponentialRampToValueAtTime(1500, now + 0.45);
+            filter.Q.value = 0.3;
+            filter.connect(gain); gain.connect(masterGain);
+
+            [-3, 3].forEach(function (cents, i) {
+                const osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.value = freq * Math.pow(2, cents / 1200);
+                const og = audioCtx.createGain();
+                og.gain.value = i === 0 ? 0.22 : 0.18;
+                osc.connect(og); og.connect(filter);
+                osc.start(now);
+                nodes.push(osc);
+            });
+
+            gain.gain.setValueAtTime(0, now);
+            gain.gain.linearRampToValueAtTime(1, now + 0.02);
+        }
+        synthActive.set(key, { nodes: nodes, gain: gain });
+    }
+
+    const synthSustainModes = ['organ', 'flute'];
+
+    function synthNoteOff(key) {
+        const active = synthActive.get(key);
+        if (!active) return;
+        if (synthSustainModes.indexOf(currentMode) !== -1) {
+            const now = audioCtx.currentTime;
+            active.gain.gain.cancelScheduledValues(now);
+            active.gain.gain.setValueAtTime(active.gain.gain.value, now);
+            active.gain.gain.linearRampToValueAtTime(0, now + 0.1);
+            active.nodes.forEach(function (o) { try { o.stop(now + 0.12); } catch (e) {} });
+        }
+        synthActive.delete(key);
+    }
+
+    // Single octave, 12 keys — a fixed drum-kit layout for "תופים" mode,
+    // in key order (C, C#, D, D#, E, F, F#, G, G#, A, A#, B).
+    const drumKit = ['kick', 'closedhat', 'snare', 'openhat', 'tom-low', 'tom-mid', 'tom-hi', 'clap', 'rim', 'shaker', 'conga', 'crash'];
+    let whiteKeyIndex = 0;
+    let keyIndex = 0;
+
+    octaves.forEach(octave => {
+        notes.forEach(note => {
+            const isBlack = note.includes('#');
+            const fullNote = note + octave;
+            const freq = noteNameToFreq(fullNote);
+            const drumSound = drumKit[keyIndex];
+            keyIndex++;
+            const key = document.createElement('div');
+            key.className = `key ${isBlack ? 'black-key' : 'white-key'}`;
+            key.dataset.note = fullNote;
+            key.dataset.isPlaying = "false";
+            keyByNote[fullNote] = key;
+
+            if (songNoteTotals[fullNote]) {
+                const fillEl = document.createElement('div');
+                fillEl.className = 'key-fill';
+                key.appendChild(fillEl);
+                keyFillEls[fullNote] = fillEl;
+            }
+
+            if (!isBlack) {
+                const img = document.createElement('img');
+                img.src = characterImages[whiteKeyIndex] || "";
+                img.className = 'character-img';
+                key.appendChild(img);
+                whiteKeyIndex++;
+            }
+
+            const playNote = () => {
+                if (key.dataset.isPlaying === "true") return;
+                key.dataset.isPlaying = "true";
+                key.classList.add('active');
+                if (mode === 'practice') dismissPracticeHint();
+
+                if (currentMode === 'piano') {
+                    try { sampler.triggerAttack(fullNote); } catch (err) {}
+                } else if (currentMode === 'drums') {
+                    playDrum(drumSound);
+                } else {
+                    synthNoteOn(key, freq);
+                }
+
+                if (soloMode) {
+                    // Self-paced: "correct" just means "the right next note
+                    // in the sequence," with no clock involved at all.
+                    if (soloIdx < songNotes.length && fullNote === songNotes[soloIdx].note) {
+                        // עכשיו גם אורך התו נחשב, לא רק איזה תו נלחץ
+                        if (songNotes[soloIdx].hold) startHold(soloIdx, key);
+                        else completeSoloNote(soloIdx, key);
+                    }
+                } else if (!songHit && songIdx < songNotes.length && player && player.getCurrentTime) {
+                    // Feedback runs in both modes now — Hani's own narration in
+                    // the lesson video tells the child to press the key the
+                    // moment a character reaches the video's green line, so
+                    // "watch" was never meant to mean "don't play." Only the
+                    // falling-note lane and mini-video are practice-only.
+                    const cur = songNotes[songIdx];
+                    if (fullNote === cur.note) {
+                        const t = player.getCurrentTime();
+                        if (t >= cur.time - NOTE_LEAD && t <= cur.time + NOTE_TAIL) {
+                            songHit = true;
+                            markTileHit(songIdx);
+                            fillKey(fullNote);
+                            key.classList.add('correct-flash');
+                            const star = document.createElement('div');
+                            star.className = 'star-pop';
+                            star.textContent = '⭐';
+                            key.appendChild(star);
+                            setTimeout(() => {
+                                key.classList.remove('correct-flash');
+                                star.remove();
+                            }, 550);
+                        }
+                    }
+                }
+            };
+
+            const stopNote = () => {
+                if (key.dataset.isPlaying === "false") return;
+                key.dataset.isPlaying = "false";
+                key.classList.remove('active');
+                releaseHold(key);
+                if (currentMode === 'piano') {
+                    try { sampler.triggerRelease(fullNote); } catch (err) {}
+                } else if (currentMode !== 'drums') {
+                    synthNoteOff(key);
+                }
+            };
+
+            let isTouchActive = false;
+
+            // אצבע שנחה על הקליד מדריכה מחוות מערכת של iOS שמגדילה את
+            // המסך, וזה קורה בכל פעם שמחזיקים תו ארוך. שום חסימה בצד
+            // הדפדפן לא עוצרת אותה - נוסו שמונה שונות. מה שכן עוצר:
+            // לתפוס את אירוע המגע ולבטל את ברירת המחדל שלו, כלומר להגיד
+            // למערכת שהמגע כבר טופל. נמדד במכשיר: scale נשאר 1.00.
+            // אירועי מגע ולא pointer, כי רק להם יש ברירת מחדל לבטל.
+            key.addEventListener('touchstart', (e) => {
+                if (e.cancelable) e.preventDefault();
+                isTouchActive = true;
+                playNote();
+            }, { passive: false });
+            const touchEnd = (e) => {
+                if (e.cancelable) e.preventDefault();
+                stopNote();
+            };
+            key.addEventListener('touchend', touchEnd, { passive: false });
+            key.addEventListener('touchcancel', touchEnd, { passive: false });
+
+            // עכבר במחשב. במגע האירועים האלה עלולים לרוץ גם הם, והשומרים
+            // שבתוך playNote ו-stopNote מונעים הפעלה כפולה.
+            key.addEventListener('pointerdown', (e) => {
+                if (e.pointerType === 'touch') return;
+                playNote();
+            });
+            key.addEventListener('pointermove', (e) => e.preventDefault());
+            ['pointerup', 'pointerleave', 'pointercancel'].forEach(t =>
+                key.addEventListener(t, (e) => { if (e.pointerType === 'touch') return; stopNote(); }));
+
+            pianoElement.appendChild(key);
+        });
+    });
+
+    // --- Falling-note lane (pilot): one column per white key, in the same
+    // do-re-mi-fa-sol-la-si order the keys themselves are built in, so a
+    // note's column always lines up with the key it belongs to.
+    const noteLetterOrder = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+    const laneCols = {};
+    noteLetterOrder.forEach((letter) => {
+        const col = document.createElement('div');
+        col.className = 'note-lane-col';
+        laneCols[letter] = col;
+        noteLane.appendChild(col);
+    });
+    const hitLine = document.createElement('div');
+    hitLine.id = 'note-lane-hitline';
+    noteLane.appendChild(hitLine);
+
+    // How far ahead (in seconds) a note appears at the top of the lane
+    // before its own moment arrives at the hit-line — the anticipation
+    // window that replaces having to glance up at the video to see what's
+    // coming next.
+    const FALL_DURATION = 2.4;
+    const activeTiles = new Map(); // songNotes index -> tile element
+
+    function renderFallingLane(t) {
+        if (mode !== 'practice' || soloMode) return;
+        const laneH = noteLane.clientHeight;
+        if (!laneH) return;
+        // Lands so the tile's own bottom edge meets the hit-line, not its top.
+        const whiteWpx = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--white-w')) || 0;
+        const tileSize = whiteWpx * 0.6;
+        const landTop = Math.max(0, laneH - tileSize);
+        // Past the line, progress keeps climbing above 1 (no upper clamp).
+        // Fade it out smoothly over that stretch so it dissolves before it
+        // would otherwise get abruptly clipped by the lane's own edge —
+        // that clip was the "flicker right before it disappears."
+        const progressCutoff = 1 + (NOTE_TAIL + 0.3) / FALL_DURATION;
+        songNotes.forEach((n, i) => {
+            const letter = n.note[0];
+            const col = laneCols[letter];
+            if (!col) return;
+            const timeUntil = n.time - t;
+            const visible = timeUntil <= FALL_DURATION && timeUntil >= -(NOTE_TAIL + 0.3);
+            let tile = activeTiles.get(i);
+            if (visible) {
+                if (!tile) {
+                    // Always centered — same-letter notes close together in
+                    // time fall in the same spot, on purpose (their spacing
+                    // comes from timing, not from being nudged sideways).
+                    tile = document.createElement('div');
+                    tile.className = 'falling-note';
+                    const img = document.createElement('img');
+                    img.src = characterImages[noteLetterOrder.indexOf(letter)] || '';
+                    tile.appendChild(img);
+                    col.appendChild(tile);
+                    activeTiles.set(i, tile);
+                }
+                // Only a correct hit freezes it (it's popping and vanishing
+                // via its own animation). A missed note keeps sinking all
+                // the way down and off — falling past the line is what
+                // "too late" looks like, rather than hovering there fading.
+                if (!tile.classList.contains('hit')) {
+                    const progress = Math.max(0, 1 - timeUntil / FALL_DURATION);
+                    tile.style.top = (progress * landTop) + 'px';
+                    if (progress > 1) {
+                        const fade = Math.min(1, (progress - 1) / (progressCutoff - 1));
+                        tile.style.opacity = String(Math.max(0, 1 - fade));
+                    }
+                }
+            } else if (tile) {
+                tile.remove();
+                activeTiles.delete(i);
+            }
+        });
+    }
+
+    function markTileHit(index) {
+        const tile = activeTiles.get(index);
+        if (!tile) return;
+        tile.classList.add('hit');
+        activeTiles.delete(index);
+        setTimeout(() => tile.remove(), 300);
+    }
+
+
+    (function fallLoop() {
+        if (player && player.getCurrentTime) renderFallingLane(player.getCurrentTime());
+        requestAnimationFrame(fallLoop);
+    })();
+
+    // Responsive key sizing: fit 7 white keys to the width left over after
+    // cabinet chrome. Width has no low cap — on a big screen the piano is
+    // meant to look like a real, prominent instrument, not a small widget
+    // lost in empty space. Key height is derived from key width (not a
+    // fixed vh) so proportions stay realistic at any size, and the whole
+    // cabinet is capped by available vertical space so it never crowds
+    // the video out on a short window.
+    // Height left for the note lane (or staff) plus the keys, once the page's
+    // own top offset, the 76px video strip, both control rows and the
+    // cabinet's frame are taken off. Read from the live layout so a wrapped
+    // mode bar or Chrome-on-iPhone's top strip is counted, not guessed.
+    function roomBelowControls() {
+        const px = (el, prop) => parseFloat(getComputedStyle(el)[prop]) || 0;
+        const app = document.getElementById('app');
+        const lip = document.getElementById('cabinet-lip');
+        const above = px(app, 'paddingTop') + 76
+            + document.getElementById('mode-bar').offsetHeight
+            + document.getElementById('speed-bar').offsetHeight;
+        const frame = px(pianoContainer, 'paddingTop') + px(pianoContainer, 'paddingBottom')
+            + px(document.getElementById('cabinet'), 'paddingTop')
+            + lip.offsetHeight + px(lip, 'marginBottom')
+            + px(document.getElementById('keywell'), 'paddingTop')
+            + 6;  // margin under the lane / staff
+        return window.innerHeight - above - frame - 4;
+    }
+
+    function sizeKeys() {
+        const totalWhiteKeys = 7;
+        const reserved = 40;
+        const rawWidth = Math.min(pianoContainer.clientWidth, window.innerWidth);
+        const containerWidth = Math.max(220, rawWidth - reserved);
+
+        let whiteW = Math.floor(containerWidth / totalWhiteKeys);
+        whiteW = Math.max(24, Math.min(whiteW, 150));
+
+        // Split the space left after the speed bar/chrome roughly evenly
+        // between video and piano — but never let the piano take so much
+        // height that the video area's aspect ratio goes far past 16:9.
+        // On a wide-but-short window, giving the piano a flat 50% used to
+        // squeeze the video into a sliver, which YouTube then pillarboxes
+        // (black bars on the sides) since it keeps the video's real aspect.
+        // +46 over the other song pages' chromeH, for this pilot's extra
+        // watch/practice mode-bar row.
+        const chromeH = 176;
+
+        let laneH = 0;
+        let availableH, maxKeyH;
+        if (mode === 'practice' || soloMode) {
+            // Video is a fixed 76px strip in practice mode (see #video-wrap.mini),
+            // not a flex share — so it's chrome here, not part of the split.
+            // Solo mode also shrinks the video the same way, so it needs
+            // this same reserved lane/staff height, not the watch-mode split.
+            // No 320px floor here on purpose — on a short landscape phone
+            // screen that floor used to claim more height than actually
+            // exists, pushing the piano/staff below the visible viewport
+            // instead of shrinking to fit it.
+            // Measured, not assumed: a fixed chromeH cut the bottom of the
+            // piano off under Chrome's toolbar on iPhone, where the page also
+            // starts below the sol-crios strip and the mode bar wraps to two
+            // rows. availableH here is the room for lane/staff + keys alone.
+            availableH = Math.max(160, roomBelowControls());
+            // Keys get first claim on the space and a real floor — a small
+            // phone in landscape is exactly when keys most need to stay
+            // tappable — but the lane still needs enough room that its own
+            // note circles (sized off key width, which stays generous on a
+            // wide landscape screen) don't get clipped inside it. The staff
+            // in "לנסות לבד" needs its own 86px floor plus its 8px gap.
+            const aboveKeys = soloMode ? 94 : 55;
+            maxKeyH = Math.max(125, Math.min(220, availableH - aboveKeys));
+        } else {
+            availableH = Math.max(320, window.innerHeight - chromeH);
+            // Standing rule across every song page: video gets ~45% of the
+            // available height, piano gets ~55% — a fixed split kept
+            // consistent site-to-site.
+            maxKeyH = Math.max(160, availableH * 0.55);
+        }
+
+        let keyH = whiteW * 3.2;
+        if (keyH > maxKeyH) {
+            keyH = maxKeyH;
+            whiteW = Math.max(24, Math.floor(keyH / 3.2));
+        }
+
+        if (mode === 'practice' && !soloMode) {
+            const idealLaneH = Math.max(55, Math.min(150, Math.round(whiteW * 2.1)));
+            laneH = Math.max(55, Math.min(idealLaneH, availableH - keyH));
+        }
+
+        const blackW = Math.round(whiteW * 0.495);
+
+        document.documentElement.style.setProperty('--white-w', whiteW + 'px');
+        document.documentElement.style.setProperty('--black-w', blackW + 'px');
+        document.documentElement.style.setProperty('--key-h', keyH + 'px');
+        document.documentElement.style.setProperty('--lane-h', laneH + 'px');
+        // רצועת הדמויות היא התוכן המרכזי במצב "לנסות לבד", ולכן היא מקבלת
+        // גובה משלה ולא יורשת את הפס הצר של מסלול התווים הנופלים.
+        const staffH = Math.max(86, Math.min(116, availableH - keyH - 8));
+        document.documentElement.style.setProperty('--staff-h', staffH + 'px');
+    }
+    // Rotating the phone (or any resize) changes --white-w, but the staff's
+    // notes were already laid out in absolute px for the old size — without
+    // rebuilding them here they stay stuck at stale positions, misaligned
+    // with the now-different-sized piano underneath.
+    window.addEventListener('resize', () => { sizeKeys(); if (soloMode) buildStaff(); });
+    sizeKeys();
+    // Re-measure once layout has fully settled — an initial synchronous call
+    // can occasionally read a stale/incorrect container width before the
+    // viewport is fully applied.
+    window.addEventListener('load', sizeKeys);
+    requestAnimationFrame(sizeKeys);
+    setTimeout(sizeKeys, 400);
+    setTimeout(sizeKeys, 1200);
+
+    // Polls playback time and advances past notes once their window closes
+    // — no penalty, it just moves on. The green key-outline and the falling
+    // tile are both practice-mode-only: in watch mode nothing is being
+    // graded, so nothing should look like it's demanding a correct key.
+    setInterval(() => {
+        if (!player || !player.getCurrentTime) return;
+        const t = player.getCurrentTime();
+
+        // Going back to the start through YouTube's own play button, or by
+        // dragging its progress bar, never touched the replay button on this
+        // page — which was the only thing that re-armed the auto-switch.
+        // Practice mode then never came back, and the note counter stayed
+        // parked at the end of the song, so even tapping תרגול by hand gave a
+        // practice mode with no falling notes. Now that תרגול is dimmed
+        // outside the play-along stretch, that left no way in at all.
+        // Watch the clock rather than the button: whoever moved it back,
+        // rebuild the same state the replay button rebuilds.
+        // Ported from sol-haverim-piano, where this was already solved.
+        if (!soloMode && t < lastVideoTime - 1) {
+            songIdx = 0;
+            while (songIdx < songNotes.length && t > songNotes[songIdx].time + NOTE_TAIL) songIdx++;
+            songHit = false;
+            resetKeyFills();
+            Object.values(keyByNote).forEach(el => el.classList.remove('due'));
+            // Landing before the play-along stretch ends means it is still
+            // ahead of us, so both auto-switch edges have to fire again.
+            if (t < AUTO_PRACTICE_END) {
+                autoEnterFired = false;
+                autoExitFired = false;
+            }
+            // The pause button was left showing the end-of-song 🔁.
+            if (player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING) {
+                isPaused = false;
+                playPauseBtn.textContent = '⏸';
+            }
+        }
+        lastVideoTime = t;
+
+        if (!soloMode && !autoEnterFired && mode === 'watch' && t >= AUTO_PRACTICE_START && t < AUTO_PRACTICE_END) {
+            autoEnterFired = true;
+            setMode('practice');
+        }
+        if (!soloMode && !autoExitFired && mode === 'practice' && t >= AUTO_PRACTICE_END) {
+            autoExitFired = true;
+            setMode('watch');
+        }
+
+        // The 0:13 and 2:33 edges change whether תרגול may be tapped, and
+        // either can pass while the page is already in watch mode — where
+        // setMode never runs and would never re-dress the button. A rewind
+        // moves the same boundaries backwards. Cheap enough to just re-check.
+        refreshPracticeLock();
+
+        // Same reason as the auto watch/practice guard above — this loop
+        // keeps polling the (possibly paused) player clock even under
+        // "לנסות לבד", and would otherwise re-apply a stale "due" highlight
+        // moments after solo mode had just cleared it.
+        if (soloMode) return;
+        if (songIdx >= songNotes.length) return;
+        const cur = songNotes[songIdx];
+        const keyEl = keyByNote[cur.note];
+        const inWindow = t >= cur.time - NOTE_LEAD && t <= cur.time + NOTE_TAIL;
+
+        if (keyEl) keyEl.classList.toggle('due', inWindow);
+
+        if (t > cur.time + NOTE_TAIL) {
+            if (keyEl) keyEl.classList.remove('due');
+            songIdx++;
+            songHit = false;
+        }
+    }, 100);
+
+    // Pilot: instrument switcher UI is hidden, so currentMode stays 'piano'
+    // (the real Tone.Sampler) — this keeps the focus on the falling-note
+    // lane itself rather than on choosing sounds.
+
+    // ?mode=practice lets a link open straight into practice mode (same
+    // convenience pattern as the existing ?admin=1 for calibration).
+    if (new URLSearchParams(location.search).get('mode') === 'practice') {
+        setMode('practice');
+    }
+</script>
+
+<script>
+/* sol-home-back: the home button. It asks nothing and guesses nothing.
+
+   Try to close the tab. If the tab is still here a moment later, go to the portal.
+
+   Everything more clever than that has failed here, and each failure taught the same lesson: this
+   page cannot tell how the child arrived. Smoove routes every click through click.smoove.io, which
+   strips the referrer completely, and the tracker leaves an entry in the history as well - so
+   "where did you come from" and "is this a fresh tab" both answer wrongly. A version that counted
+   history entries sent Hani's own phone back into a games site her children had used; a version
+   that checked history.length sent her tester one lesson back and then to a login screen. Measured
+   on her devices, 28.8.2026.
+
+   Closing works because Smoove opens the lesson in a new tab and that tab is ours to close - it
+   returns the child to the Smoove page they left, still signed in, however many lessons they moved
+   through with the arrows first.
+
+   The fallback is the short courses link from the course settings: the one Smoove address measured
+   to work for somebody who is not Hani - her tester opened it signed in, without a password. It
+   lands a step further out than the lesson's own page, and that is the price of never landing
+   somewhere else entirely. */
+(function () {
+  var PORTAL = "https://portal.smoove.io/dfb7";
+  var home = document.querySelector('a[href*="portal.smoove.io"][href*="Category"]')
+          || document.querySelector('a[href*="portal.smoove.io"]');
+  if (!home) return;
+
+  home.addEventListener("click", function (e) {
+    e.preventDefault();
+    try { window.close(); } catch (err) {}
+    window.setTimeout(function () {
+      try { window.top.location.href = PORTAL; } catch (err) { location.href = PORTAL; }
+    }, 350);
+  });
+})();
+</script>
+
+
+
+
+
+
+
+
+
+
+<style>
+/* sol-crios: Chrome on iPhone hides the top of the page, so nothing the child
+   needs is put there.
+
+   Chrome sometimes paints the page from the top of the window instead of below
+   its own address bar. Measured on a tester's phone: an 852 screen, a 669
+   opening, Chrome handing the page a correct 666 and then drawing it from three
+   pixels above the screen. The first hundred-odd pixels vanish behind the
+   address bar and the leftover shows as black along the bottom.
+
+   Nothing in the page can see it. Twelve values were compared between a phone
+   where Chrome places the page correctly and one where it does not, including
+   outerHeight, availHeight, visualViewport.offsetTop and the position of the
+   document root: every one identical. Four attempts to make Chrome measure
+   again - a compositing layer, a small-viewport height, a pixel of scroll, a
+   rewritten viewport tag - all failed. Safari on the same phone, same link,
+   same minute, is always perfect.
+
+   So the page starts below the strip Chrome eats. The strip is the same dark
+   colour as the page and carries nothing, at Hani's request: when Chrome
+   behaves it reads as nothing at all, just a page sitting slightly lower; when
+   Chrome misbehaves it is the strip that disappears instead of the content.
+
+   Its height cannot be trimmed - it is exactly what Chrome hides, and anything
+   shorter puts the top of the content back under the address bar. It is measured
+   per device and bounded, so no phone can push the page into mid-screen.
+
+   Chrome on iOS only. Safari, Android, iPad and desktop never run a line of it. */
+.sol-crios-band { display: none; }
+html.sol-crios .sol-crios-band {
+  display: block;
+  box-sizing: border-box;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: var(--sol-crios-drop, 110px);
+  z-index: 99;
+  background: #111111;
+  pointer-events: none;
+}
+html.sol-crios #app {
+  box-sizing: border-box;
+  padding-top: var(--sol-crios-drop, 110px);
+}
+html.sol-crios .sol-home-btn { top: calc(8px + var(--sol-crios-drop, 110px)); }
+html.sol-crios .sol-nav      { top: calc(58px + var(--sol-crios-drop, 110px)); }
+</style>
+<script>
+(function () {
+  if (!/CriOS/.test(navigator.userAgent)) return;
+  var band = document.createElement("div");
+  band.className = "sol-crios-band";
+  document.body.appendChild(band);
+  function place() {
+    var bars = window.screen.height - window.innerHeight;  /* both Chrome bars */
+    var top = bars - 80;                                   /* minus the bottom one */
+    if (top < 90) top = 90;
+    if (top > 140) top = 140;
+    document.documentElement.style.setProperty("--sol-crios-drop", top + "px");
+  }
+  document.documentElement.classList.add("sol-crios");
+  place();
+  window.addEventListener("resize", place);
+  window.addEventListener("orientationchange", function () { setTimeout(place, 300); });
+})();
+</script></body>
+</html>
