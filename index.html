@@ -1436,7 +1436,12 @@
     function noteToFile(note, octave) {
         const letter = note[0].toLowerCase();
         const sharp = note.includes('#') ? 'd' : '';
-        return `sounds/${letter}${sharp}${octave}.wav`;
+        // MP3, not the WAV beside it: the same recording at a tenth of the
+        // weight (~400KB for the octave instead of ~3MB). On a slow first
+        // visit the WAVs were still loading when the child reached the keys,
+        // and a key pressed before its sample loads stays silent. Hani
+        // compared both by ear and approved, 2026-10-20.
+        return `sounds/${letter}${sharp}${octave}.mp3`;
     }
 
     // sounds/d4.wav and sounds/e4.wav actually contain mislabeled D3/E3 audio
